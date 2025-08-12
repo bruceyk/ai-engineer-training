@@ -1,0 +1,69 @@
+name: Sync Upstream Repository
+
+on:
+  schedule:
+    # 每30分钟检查一次
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    # 允许手动触发
+  repository_dispatch:
+    # 支持webhook触发
+    types: [sync_request]
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/Blackoutta/ai-engineer-training.git
+          git fetch upstream
+
+      - name: Check if there are changes to sync
+        id: check-changes
+        run: |
+          if git rev-list HEAD..upstream/main --count > /dev/null 2>&1; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "change_count=$(git rev-list HEAD..upstream/main --count)" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Sync with upstream
+        if: steps.check-changes.outputs.changes == 'true'
+        run: |
+          git checkout main
+          git pull upstream main
+          git push origin main
+
+      - name: Create sync summary
+        if: steps.check-changes.outputs.changes == 'true'
+        run: |
+          echo "## 🔄 Upstream Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repository**: Blackoutta/ai-engineer-training" >> $GITHUB_STEP_SUMMARY
+          echo "- **Changes synced**: ${{ steps.check-changes.outputs.change_count }} commits" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sync time**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Repository successfully synced with upstream!"
+
+      - name: No changes to sync
+        if: steps.check-changes.outputs.changes == 'false'
+        run: |
+          echo "## ✅ No Changes to Sync" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Repository is already up to date with upstream." >> $GITHUB_STEP_SUMMARY
+          echo "- **Last check**: $(date -u)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
