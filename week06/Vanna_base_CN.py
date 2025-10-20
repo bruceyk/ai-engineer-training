@@ -38,22 +38,11 @@ r"""
 
 # Open-Source and Extending
 
-Vanna.AI is open-source and extensible. If you'd like to use Vanna without the servers, 
-see an example [here](https://vanna.ai/docs/postgres-ollama-chromadb/).
+Vanna.AI is open-source and extensible. If you'd like to use Vanna without the servers, see an example [here](https://vanna.ai/docs/postgres-ollama-chromadb/).
 
-The following is an example of where various functions are implemented in the codebase 
-when using the default "local" version of Vanna. 
-`vanna.base.VannaBase` is the base class which provides a `vanna.base.VannaBase.ask` 
-and `vanna.base.VannaBase.train` function. 
+The following is an example of where various functions are implemented in the codebase when using the default "local" version of Vanna. `vanna.base.VannaBase` is the base class which provides a `vanna.base.VannaBase.ask` and `vanna.base.VannaBase.train` function. Those rely on abstract methods which are implemented in the subclasses `vanna.openai_chat.OpenAI_Chat` and `vanna.chromadb_vector.ChromaDB_VectorStore`. `vanna.openai_chat.OpenAI_Chat` uses the OpenAI API to generate SQL and Plotly code. `vanna.chromadb_vector.ChromaDB_VectorStore` uses ChromaDB to store training data and generate embeddings.
 
-Those rely on abstract methods which are implemented in the subclasses `vanna.openai_chat.OpenAI_Chat` 
-and `vanna.chromadb_vector.ChromaDB_VectorStore`. 
-
-`vanna.openai_chat.OpenAI_Chat` uses the OpenAI API to generate SQL and Plotly code. 
-`vanna.chromadb_vector.ChromaDB_VectorStore` uses ChromaDB to store training data and generate embeddings.
-
-If you want to use Vanna with other LLMs or databases, you can create your own subclass of
- `vanna.base.VannaBase` and implement the abstract methods.
+If you want to use Vanna with other LLMs or databases, you can create your own subclass of `vanna.base.VannaBase` and implement the abstract methods.
 
 ```mermaid
 flowchart
@@ -516,13 +505,7 @@ class VannaBase(ABC):
                 f"You are a helpful data assistant. The user asked the question: '{question}'\n\nThe SQL query for this question was: {sql}\n\nThe following is a pandas DataFrame with the results of the query: \n{df.head(25).to_markdown()}\n\n"
             ),
             self.user_message(
-                f'''Generate a list of {n_questions} followup questions that the user might ask about this data. 
-                Respond with a list of questions, one per line. Do not answer with any explanations -- just the questions. 
-                Remember that there should be an unambiguous SQL query that can be generated from the question. 
-                Prefer questions that are answerable outside of the context of this conversation. 
-                Prefer questions that are slight modifications of the SQL query that was generated that allow digging deeper into the data. 
-                Each question will be turned into a button that the user can click to generate a new SQL query so don't use 'example' type questions. 
-                Each question must have a one-to-one correspondence with an instantiated SQL query.''' +
+                f"Generate a list of {n_questions} followup questions that the user might ask about this data. Respond with a list of questions, one per line. Do not answer with any explanations -- just the questions. Remember that there should be an unambiguous SQL query that can be generated from the question. Prefer questions that are answerable outside of the context of this conversation. Prefer questions that are slight modifications of the SQL query that was generated that allow digging deeper into the data. Each question will be turned into a button that the user can click to generate a new SQL query so don't use 'example' type questions. Each question must have a one-to-one correspondence with an instantiated SQL query." +
                 self._response_language()
             ),
         ]
@@ -2805,7 +2788,7 @@ class VannaBase(ABC):
 
         if print_results:
             try:
-                Code = __import__("IPython.display", fromlist=["Code"]).Code
+                Code = __import__("IPython.display", fromList=["Code"]).Code
                 display(Code(sql))
             except Exception as e:
                 print(sql)
