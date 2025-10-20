@@ -1,6 +1,9 @@
 # pip install vanna
 import vanna
 import os
+from openai import OpenAI
+from dotenv import load_dotenv
+load_dotenv()
 
 from vanna.openai.openai_chat import OpenAI_Chat
 from vanna.chromadb.chromadb_vector import ChromaDB_VectorStore
@@ -8,7 +11,8 @@ from vanna.chromadb.chromadb_vector import ChromaDB_VectorStore
 class MyVanna(ChromaDB_VectorStore, OpenAI_Chat):
     def __init__(self, config=None):
         ChromaDB_VectorStore.__init__(self, config=config)
-        OpenAI_Chat.__init__(self, config=config)
+        OpenAI_Chat.__init__(self, OpenAI(api_key=config["api_key"], base_url=os.getenv('OPENAI_API_BASE')), config=config)
+
 
 vn = MyVanna(config={'api_key': os.getenv('OPENAI_API_KEY'), 'model': 'gpt-4o'})
 
