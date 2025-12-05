@@ -87,7 +87,6 @@ def build_player_prompt(
         f"记忆中与你相关的历史事件：\n{memory_snippets or '暂无'}\n\n"
         f"最近的公共发言与事件：\n{history_text}\n\n"
         f"你的任务是：{objective}。\n"
-        "请给出你的思考和最终结论。"
     )
 
     return ChatPromptTemplate.from_messages([
@@ -114,9 +113,10 @@ def generate_player_speech(
         state_round=state_round,
         public_log=public_log,
         memory_snippets=memory_snippets,
-        objective="现在是白天，你需要根据历史和记忆，选出谁是你认为的可疑狼人。"
-            f"可怀疑的候选人有：{candidates_str}, 请给出你的思考(不超过3句)和最终人名。",
+        objective="现在是白天，你需要根据历史和记忆选出谁是你认为的可疑狼人。注意你的角色，不要自相残杀。"
+            f"可怀疑的候选人有：{candidates_str}, 请给出你的思考(不超过3句)和最终怀疑的人名。",
     )
+
     chain = prompt | llm
     result = chain.invoke({})
     return result.content.strip()
@@ -129,7 +129,7 @@ def generate_player_vote(
     public_log: List[str],
     memory: GameMemory,
     alive_players: List[str],
-) -> str:
+):
     candidates = [p for p in alive_players if p != player.name]
     memory_snippets = memory.query(
         f"围绕玩家 {player.name} 的投票和指控信息，以及公共怀疑焦点"
@@ -141,24 +141,19 @@ def generate_player_vote(
         public_log=public_log,
         memory_snippets=memory_snippets,
         objective=(
-            "在当前局势下选择一名你最怀疑是狼人的玩家并投票给他。"
+            "现在是投票环节。在当前局势下选择一名你最怀疑是狼人的玩家并投票给他。"
+            "注意你的校色，狼人之间尽量不要互相攻击, 狼人的发言需要隐藏身份并误导其他人。"
             f"可被投票的候选人有：{', '.join(candidates)}。"
         ),
     )
-    chain = prompt | llm
+    
+    class Vote(BaseModel):
+        thought: str = Field(..., describe="列出详细的思考过程，最多思考3点原因")
+        name: str = Field(..., describe="你给投票的人名字")
+
+    chain = prompt | llm.with_structured_output(Vote)
     result = chain.invoke({})
-    text = result.content.strip()
-
-    vote_target = candidates[0]
-    best_count = -1
-    for candidate in candidates:
-        count = text.count(candidate)
-        if count > best_count:
-            best_count = count
-            vote_target = candidate
-
-    return vote_target
-
+    return result.model_dump()
 
 def generate_victim_vote(
     llm: ChatTongyi,
@@ -182,8 +177,8 @@ def generate_victim_vote(
         memory_snippets=memory_snippets,
         objective=(
             "现在处于夜晚阶段，你需要与狼人同伴商量今晚要击杀谁。\n"
-            f"可被击杀的候选人有：{candidates_str}。请综合白天发言、投票和记忆中的信息，以及最近的公共发言与事件"
-            "选择一个最有利于狼人获胜的击杀目标。最终给出一个明确的人名和原因。注意如果你是狼人，尽量保持狼人的击杀对象一致。"
+            f"可被击杀的村民有：{candidates_str}。请综合白天发言、投票和记忆中的信息，以及最近的公共发言与事件"
+            "选择一个最有利于狼人获胜的击杀目标。最终给出一个明确的人名和原因。注意尽量保持与已有狼人给出的击杀对象一致。"
         ),
     )
 

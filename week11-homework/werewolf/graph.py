@@ -11,6 +11,7 @@ from .agents import (
     generate_player_vote,
     generate_victim_vote,
 )
+from .tracking import StepTrace, TraceCollector
 
 class GameState(TypedDict):
     round: int
@@ -73,7 +74,9 @@ def night_phase(
     config: GameConfig,
     players: List[PlayerConfig],
     memory: GameMemory,
+    trace: TraceCollector | None = None,
 ) -> GameState:
+    logger.debug(f"===========================当前第{state['round']}轮==============================")
     llm = create_llm(config.model_name)
 
     werewolves = [
@@ -98,16 +101,43 @@ def night_phase(
             public_log=private_log[-1] if private_log else [],
             memory=memory,
         )
-        logger.debug(str(vote))
-        vote_collection.append({"name": wolf.name, "role": wolf.role, "vote": vote['name'], 'reason': vote['reason']})
-        private_log.append(f"当前轮{state['round']}: " + " ".join([vote['role']+vote["name"] + " 击杀 " + vote['vote'] +', 原因是' + vote['reason'] for vote in vote_collection]))
+        logger.debug(f"第{state['round']}轮：{wolf.name} 准备击杀 {vote["name"]} 思考原因：{vote["reason"]}")
+        vote_collection.append({"name": wolf.name, "role": wolf.role, "vote": vote["name"], "reason": vote["reason"]})
+        private_log.append(
+            f"当前轮{state['round']}: "
+            + " ".join(
+                [
+                    v["role"]
+                    + v["name"]
+                    + " 击杀 "
+                    + v["vote"]
+                    + ", 原因是"
+                    + v["reason"]
+                    for v in vote_collection
+                ]
+            )
+        )
+        if trace is not None:
+            trace.add_step(
+                StepTrace(
+                    round=state["round"],
+                    phase="night",
+                    player_name=wolf.name,
+                    role=wolf.role,
+                    step_type="victim_vote",
+                    thought=str(vote.get("thought", "")),
+                    action=f"选择击杀 {vote['name']}",
+                    observation=f"候选人: {', '.join(candidate_names)}",
+                    extra=vote,
+                )
+            )
 
     chosen = [vote["vote"] for vote in vote_collection]
 
     state["last_night_killed"] = chosen[-1]
-    state["public_log"].append(f"第{state['round']}轮: 夜晚，狼人联合击杀了 {chosen[-1]}（对外暂不公布过程）。")
+    state["public_log"].append(f"第{state['round']}轮： 夜晚，狼人联合击杀了 {chosen[-1]}（对外暂不公布过程）。")
     memory.add_event(f"第{state['round']}轮夜晚：狼人讨论并击杀了 {chosen[-1]}。")
-    logger.debug(str(state))
+    logger.debug(state["public_log"][-1])
     return state
 
 
@@ -130,6 +160,7 @@ def discussion_phase(
     config: GameConfig,
     players: List[PlayerConfig],
     memory: GameMemory,
+    trace: TraceCollector | None = None,
 ) -> GameState:
     llm = create_llm(config.model_name)
 
@@ -163,7 +194,20 @@ def discussion_phase(
         logger.debug(log_line)
         state["public_log"].append(log_line)
         memory.add_event(log_line)
-    logger.debug(str(state))
+        if trace is not None:
+            trace.add_step(
+                StepTrace(
+                    round=state["round"],
+                    phase="discussion",
+                    player_name=player.name,
+                    role=player.role,
+                    step_type="speech",
+                    thought=speech,  # 如需可进一步从 speech 中解析
+                    action="发表发言",
+                    observation=log_line,
+                    extra={"speech": speech, "candidates": candidates},
+                )
+            )
     return state
 
 
@@ -172,6 +216,7 @@ def vote_phase(
     config: GameConfig,
     players: List[PlayerConfig],
     memory: GameMemory,
+    trace: TraceCollector | None = None,
 ) -> GameState:
     llm = create_llm(config.model_name)
 
@@ -181,7 +226,7 @@ def vote_phase(
         voter = next(p for p in players if p.name == voter_name)
         if len(state["alive_players"]) <= 1:
             continue
-        target = generate_player_vote(
+        player_vote = generate_player_vote(
             llm=llm,
             player=voter,
             state_round=state["round"],
@@ -189,12 +234,27 @@ def vote_phase(
             memory=memory,
             alive_players=state["alive_players"],
         )
+        target = player_vote.get('name', "Unknown")
         if target in votes:
             votes[target] += 1
         vote_log = f"第{state['round']}轮：[投票]{voter.name} 投票给 {target}。"
-        logger.debug(vote_log)
+        logger.debug(f"{vote_log} 原因：\n{player_vote['thought']}")
         state["public_log"].append(vote_log)
         memory.add_event(vote_log)
+        if trace is not None:
+            trace.add_step(
+                StepTrace(
+                    round=state["round"],
+                    phase="vote",
+                    player_name=voter.name,
+                    role=voter.role,
+                    step_type="vote",
+                    thought=player_vote.get("thought", ""),
+                    action=f"投票给 {target}",
+                    observation=vote_log,
+                    extra={"target": target},
+                )
+            )
 
     if votes:
         sorted_votes = sorted(votes.items(), key=lambda kv: kv[1], reverse=True)
@@ -214,7 +274,7 @@ def vote_phase(
 
     state["public_log"].append(result_log)
     memory.add_event(result_log)
-    logger.debug(str(state))
+    logger.debug(state["public_log"][-1])
     return state
 
 
@@ -238,24 +298,24 @@ def check_end_condition(state: GameState) -> GameState:
     return state
 
 
-def build_game_graph(
+def build_game_moderator(
     config: GameConfig,
     players: List[PlayerConfig],
     memory: GameMemory,
+    trace: TraceCollector | None = None,
 ) -> StateGraph:
     graph = StateGraph(GameState)
 
-    graph.add_node("night", lambda s: night_phase(s, config, players, memory))
+    graph.add_node("night", lambda s: night_phase(s, config, players, memory, trace))
     graph.add_node("announce", lambda s: announce_phase(s, memory))
-    graph.add_node("discussion", lambda s: discussion_phase(s, config, players, memory))
-    graph.add_node("vote", lambda s: vote_phase(s, config, players, memory))
+    graph.add_node("discussion", lambda s: discussion_phase(s, config, players, memory, trace))
+    graph.add_node("vote", lambda s: vote_phase(s, config, players, memory, trace))
 
     def after_vote(state: GameState) -> GameState:
         state = check_end_condition(state)
         if not state.get("winner"):
             state["round"] = state["round"] + 1
             state["phase"] = "night"
-        logger.debug("After_vote: " + str(state))
         return state
 
     graph.add_node("after_vote", after_vote)
@@ -312,4 +372,4 @@ def build_game_graph(
         {"night": "night", "end": END},
     )
 
-    return graph
+    return graph.compile()

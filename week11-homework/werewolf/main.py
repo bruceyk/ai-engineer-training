@@ -1,28 +1,11 @@
 from pathlib import Path
 
 from .agents import GameConfig
-from .graph import build_game_graph, init_players_and_state
-
+from .game_api import run_game
 
 def main():
     # 可以根据需要修改最大轮数
-    config = GameConfig(max_rounds=5)
-
-    players, memory, initial_state = init_players_and_state(config)
-    graph = build_game_graph(config, players, memory)
-    app = graph.compile()
-
-    from IPython.display import Image, display
-    # 尝试将图导出为图片（需要安装 graphviz）
-    try:
-        graph_filename = "workflow_graph.png"
-        with open(graph_filename, 'wb') as f:
-            f.write(app.get_graph().draw_mermaid_png())
-    except:
-        print("无法生成Mermaid图，请安装graphviz")
-
-    final_state = app.invoke(initial_state)
-
+    final_state = run_game(GameConfig(max_rounds=5))
     log_lines = final_state["public_log"]
 
     # 控制台打印
